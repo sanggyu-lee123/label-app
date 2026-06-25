@@ -1,4 +1,4 @@
-const CACHE_NAME = 'label-app-v1';
+const CACHE_NAME = 'label-app-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -14,6 +14,12 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -24,8 +30,23 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Network-first for the Google Fonts (need internet anyway), cache-first for app shell
   const url = event.request.url;
+  const isHTML = event.request.mode === 'navigate' || url.endsWith('.html') || url.endsWith('/');
+
+  // HTML, manifest, sw.js itself → network-first (always try to get the latest version)
+  if (isHTML || url.endsWith('manifest.json')) {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-store' })
+        .then((response) => {
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Google Fonts → network-first, fallback to cache
   if (url.includes('fonts.googleapis.com') || url.includes('fonts.gstatic.com')) {
     event.respondWith(
       fetch(event.request).catch(() => caches.match(event.request))
@@ -33,6 +54,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Icons and other static assets → cache-first (rarely change, fast load)
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
